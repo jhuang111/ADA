@@ -127,7 +127,6 @@ def train_pyg(
     wandb_config.weight_decay = config.weight_decay
     wandb_config.cutoff = config.cutoff
 
-    # 创建输出文件夹
     if not os.path.exists(config.output_dir):
         os.makedirs(config.output_dir)
     checkpoint_dir = os.path.join(config.output_dir, config.checkpoint_dir)
@@ -138,7 +137,6 @@ def train_pyg(
     f.write(json.dumps(tmp, indent=4))
     f.close()
     pprint.pprint(tmp)  # , sort_dicts=False)
-    # 随机种子
     if config.random_seed is not None:
         deterministic = True
         ignite.utils.manual_seed(config.random_seed)
@@ -149,7 +147,6 @@ def train_pyg(
         random.seed(config.random_seed)
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-    # 使用自定义数据集时触发。默认为空，不触发
     if data_root:
         dataset_info = loadjson(os.path.join(data_root, "dataset_info.json"))
         if "n_train" in dataset_info:
@@ -209,8 +206,6 @@ def train_pyg(
         dataset_array = None
 
     print('output_dir train', config.output_dir)
-    # 默认执行，因为train_val_test_loaders默认为None，即false。
-    # 数据处理函数，包括获取数据以及将数据分割为训练验证以及测试三个集合
     if not train_val_test_loaders:
         # use input standardization for all real-valued feature sets
         (
@@ -256,7 +251,6 @@ def train_pyg(
     _model = {
         "ADAGNN": ADAGNN,
     }
-    # 创建net实例
     net = _model.get(config.model.name)(config.model)
     # checkpoint为空
     if checkpoint is not None:
@@ -264,7 +258,6 @@ def train_pyg(
 
     count_parameters(net)
     net.to(device)
-    # 创建优化器
     # group parameters to skip weight decay for bias and batchnorm
     params = group_decay(net)
     optimizer = setup_optimizer(params, config)
@@ -289,7 +282,6 @@ def train_pyg(
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=100, gamma=0.5
         )
-    # 创建损失函数
     # select configured loss function
     criteria = {
         "mse": nn.MSELoss(),
@@ -300,7 +292,6 @@ def train_pyg(
 
     # set up training engine and evaluators
     metrics = {"loss": Loss(criterion), "mae": MeanAbsoluteError() * std, "neg_mae": -1.0 * MeanAbsoluteError() * std}
-    # 创建训练器
     trainer = create_supervised_trainer(
         net,
         optimizer,
@@ -309,7 +300,6 @@ def train_pyg(
         device=device,
         deterministic=deterministic,
     )
-    # 创建评估器
     evaluator = create_supervised_evaluator(
         net,
         metrics=metrics,
@@ -364,11 +354,9 @@ def train_pyg(
         train_eos = EpochOutputStore()
         train_eos.attach(train_evaluator)
 
-    # 事件处理器 EPOCH_COMPLETED 代表当一个 epoch 结束时, 会触发此事件
     # collect evaluation performance
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_results(engine):
-        # 每次训练结束后 对模型的性能进行评估，包括训练集和验证集
         train_evaluator.run(train_loader)
         evaluator.run(val_loader)
 
@@ -396,7 +384,6 @@ def train_pyg(
                                       config.model.name + "_" + config.target + "_history_train.json"),
                 data=history["train"],
             )
-        # 添加wandb
         current_lr = scheduler.get_lr()
         wandb.log({"learning_rate,": current_lr,  "train_mae": tmetrics['mae'], "valid_mae": vmetrics['mae']})
         if config.progress:
@@ -433,7 +420,6 @@ def train_pyg(
                 global_step_transform=global_step_from_engine(trainer),
             )
 
-    # 模型开始训练，参数包含训练数据和训练轮数
     # train the model!
     if not testing:
         print('start training')
@@ -445,7 +431,6 @@ def train_pyg(
         test_loss = evaluator.state.metrics["loss"]
         tb_logger.writer.add_hparams(config, {"hparam/test_loss": test_loss})
         tb_logger.close()
-    # 后面都是测试，但是没用到evaluator？？？
     print("Testing!")
     net.eval()
     t1 = time.time()
@@ -495,7 +480,6 @@ def train_pyg(
 
 
 def train_prop_model(config: Dict, data_root: str = None, checkpoint: str = None, testing: bool = False, file_format: str = 'poscar'):
-    # 对megnet 数据集做一些特殊处理，未能理解原因
     if config["dataset"] == "megnet":
         config["id_tag"] = "id"
         if config["target"] == "e_form" or config["target"] == "gap pbe":
@@ -504,6 +488,5 @@ def train_prop_model(config: Dict, data_root: str = None, checkpoint: str = None
             config["n_test"] = 4239
 
     result = train_pyg(config, data_root=data_root, file_format=file_format, checkpoint=checkpoint, testing=testing)
-    # 最终得到测试集的mae
     return result
 
